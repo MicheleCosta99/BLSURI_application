@@ -1,0 +1,603 @@
+!-------------------------------------------------------------------------------------------------------------------------------
+!--------------------------------------------------------- PROGRAMMA -----------------------------------------------------------
+!-------------------------------------------------------------------------------------------------------------------------------
+
+PROGRAM progetto1
+
+  IMPLICIT NONE
+  INTEGER :: ngal, ndati, np, i, j, ncef
+  REAL*8 :: coeff(2), H0, EH0, omegaM, omegaL, T0, ET0, LT, ELT, I1, I2
+  REAL*8, EXTERNAL :: integranda1, integranda2
+  REAL*8, ALLOCATABLE :: giorni(:), magapp(:), xfi(:), fi(:)
+  REAL*8, ALLOCATABLE :: periodicat(:), magasscat(:)
+  REAL*8, ALLOCATABLE :: vel_gal(:), E_vel_gal(:)
+  REAL*8, ALLOCATABLE :: H(:), E_H(:), pesi(:)
+  CHARACTER(len=21) :: nomefi
+  CHARACTER(len=7), ALLOCATABLE :: nomi(:)
+
+  !print legenda
+  PRINT*,NEW_LINE('a'), "-------------------------------------------------------------------------"
+
+  !-------------------------------------------- STEP 0 --------------------------------------------------
+   
+  !indagine dei dati attraverso la lettura di gal_vel.txt
+  CALL contarighe('dati/gal_vel.txt', 16, ngal)
+  ALLOCATE(nomi(ngal), vel_gal(ngal), E_vel_gal(ngal), H(ngal), E_H(ngal), pesi(ngal))   
+  OPEN(1, file='dati/gal_vel.txt')
+	DO i=1,ngal
+    READ(1,*) nomi(i), vel_gal(i), E_vel_gal(i)
+	END DO
+  CLOSE(1)
+
+  !-------------------------------------------- STEP 1 --------------------------------------------------
+
+  !iterazione procedimenti per ogni cefeide
+  DO i=1,ngal
+      
+    !costruzione del nome del file dei dati
+    nomefi(1:10) = 'dati\ceph_'
+    nomefi(11:17) = nomi(i)
+    nomefi(18:21) = '.txt'
+      
+    !lettura dei dati a disposizione per ogni cefeide
+    CALL contarighe(nomefi, 21, ndati)
+    ALLOCATE (giorni(ndati), magapp(ndati))
+    OPEN(2, file=nomefi)
+		DO j=1,ndati
+      READ(2,*) giorni(j), magapp(j)
+		END DO
+    CLOSE(2)
+      
+    !ordinamento cronologico delle osservazioni
+    CALL ordinamento(giorni, magapp, ndati)
+
+    !interpolazione tramite spline cubica
+    np = INT((giorni(ndati) - giorni(1))/0.01)     
+    ALLOCATE(xfi(np), fi(np))
+    CALL spline(giorni, magapp, ndati, xfi, fi, np)
+
+    !calcolo periodi e magnitudini apparenti medie
+    CALL trovaperiodiemag(xfi, fi, np, nomi(i))
+
+    DEALLOCATE(giorni, magapp, xfi, fi)
+
+  END DO
+
+  !-------------------------------------------- STEP 2 --------------------------------------------------
+
+  !lettura del catalogo di cefeidi
+  CALL contarighe('dati\ceph_catalog.txt', 21, ncef)
+  ALLOCATE (periodicat(ncef), magasscat(ncef))
+  OPEN(3, file='dati\ceph_catalog.txt')
+  DO j=1,ncef
+    READ(3,*) periodicat(j), magasscat(j)
+  END DO
+  CLOSE(3)
+
+  !fit lineare
+  CALL fitlin(LOG10(periodicat), magasscat, ncef, coeff)
+
+  !-------------------------------------------- STEP 3 --------------------------------------------------
+
+  !cacolo delle distanze
+  CALL calcdist(ngal, coeff)
+
+  !-------------------------------------------- STEP 4 --------------------------------------------------
+
+  !calcolo della costante di Hubble
+  CALL calchubble(ngal, vel_gal, E_vel_gal, H0, EH0)
+
+  !-------------------------------------------- STEP 5 --------------------------------------------------
+
+  !conversione dei dati
+  H0 = H0*3.24078*10.0d0**(-20)
+  EH0 = EH0*3.24078*10.0d0**(-20)
+  T0 = 13.82*(10.**9)*(3.156*(10.**7))
+  ET0 = T0/100.
+  LT = H0*T0
+  ELT = LT*(EH0/H0+ET0/T0)
+
+  !risolvo l'integrale e lo confronto con il risultato atteso, mentre salvo i risultati
+  OPEN(8, file='univ_geom_euclid.txt', status='replace')
+  CLOSE(8)
+  OPEN(8, file='univ_geom_sfer.txt', status='replace')
+  CLOSE(8)
+  OPEN(8, file='univ_geom_iperb.txt', status='replace')
+  CLOSE(8)
+  DO i=1,100
+    OmegaM = i/100.
+    DO j=1,100
+      OmegaL=j/100.
+      CALL quadgauss(integranda1, 0.0d0, 1.0d0, OmegaM, OmegaL, I1)
+      CALL quadgauss(integranda2, 0.0d0, 1.0d0, OmegaM, OmegaL, I2)
+      IF (I1+I2>=LT-ELT .AND. I1+I2<=LT+ELT) THEN
+        IF (i+j==100) THEN
+          OPEN(8, file='univ_geom_euclid.txt', position='append')
+          WRITE(8,5) OmegaM, OmegaL
+          CLOSE(8)
+        ELSE IF (i+j>100) THEN
+          OPEN(8, file='univ_geom_sfer.txt', position='append')
+          WRITE(8,5) OmegaM, OmegaL
+          CLOSE(8)
+        ELSE IF (i+j<100) THEN
+          OPEN(8, file='univ_geom_iperb.txt', position='append')
+          WRITE(8,5) OmegaM, OmegaL
+          CLOSE(8)
+        END IF
+      END IF
+      5 FORMAT(F10.2, F10.2, F10.2)
+    END DO
+  END DO
+
+  PRINT*, NEW_LINE('a'),"PROGRAMMA TERMINATO. Per le soluzioni si consultino i file di output generati"
+  PRINT*, NEW_LINE('a'), "-------------------------------------------------------------------------"
+
+END PROGRAM progetto1
+
+
+
+
+!------------------------------------------------------------------------------------------------------------------------------
+!---------------------------------------------------- SUBROUTINES -------------------------------------------------------------
+!------------------------------------------------------------------------------------------------------------------------------
+
+!------------------------------------------------------------------------------------------
+SUBROUTINE contarighe(catname, lencatn, nrighe)
+
+  IMPLICIT NONE 
+  INTEGER :: lencatn, nrighe
+  CHARACTER(len=lencatn) :: catname
+
+  OPEN(1, file=catname)
+  nrighe = 0
+	DO 
+    READ(1,*,end=1)
+    nrighe = nrighe+1
+	END DO
+  1 continue
+  CLOSE(1)
+
+END SUBROUTINE contarighe
+!------------------------------------------------------------------------------------------
+
+!------------------------------------------------------------------------------------------
+SUBROUTINE ordinamento(giorni, magapp, ndati)
+
+  IMPLICIT NONE
+  INTEGER :: ndati, i, j, posmin
+  REAL*8 :: giorni(ndati), magapp(ndati), salv, salvm
+
+	DO i=1,ndati
+    posmin = i
+		DO j=(i + 1),ndati
+		  IF (giorni(j) < giorni(posmin)) THEN
+        posmin = j
+			END IF
+		END DO
+		IF (posmin /= i) THEN
+      salv = giorni(i)
+      giorni(i) = giorni(posmin)
+      giorni(posmin) = salv
+      salvm = magapp(i)
+      magapp(i) = magapp(posmin)
+      magapp(posmin) = salvm
+		END IF
+  END DO
+
+END SUBROUTINE ordinamento
+!------------------------------------------------------------------------------------------
+
+!------------------------------------------------------------------------------------------
+SUBROUTINE spline(x, y, ndati, xfi, fi, np)      
+
+  IMPLICIT NONE
+  INTEGER :: ndati, np, i, j        
+  REAL*8 :: x(ndati), y(ndati), ds(ndati-2), dsc(ndati)
+  REAL*8 :: mat(ndati-2, ndati-2), c(ndati-2), xfi(np), fi(np)
+  CHARACTER(len=21) :: nomefi                   
+
+  !costruzione vettore termini noti
+  DO i=2,ndati-1
+    c(i-1) = (6./(x(i+1)-x(i))*(y(i+1)-y(i)))+(6./(x(i)-x(i-1))*(y(i-1)-y(i)))
+  END DO 
+
+  !costruzione matrice (n-1, n-1)
+  DO i=1,ndati-2
+    DO j=1,ndati-2
+      IF (i==j) THEN
+        mat(i,j) = 2.*(x(i+2)-x(i))
+      ELSE IF (i==j+1) THEN
+        mat(i,j) = x(i+1)-x(i)
+      ELSE IF (i==j-1) THEN
+        mat(i,j) = x(i+2)-x(i+1)
+      ELSE 
+        mat(i,j) = 0.0d0
+      END IF
+    END DO
+  END DO 
+
+  !chiamata Thomas e completamento vettore derivate seconde
+  CALL thomas(mat, c, ndati-2, ds)
+  DO i=2,ndati-1
+    dsc(i) = ds(i-1)
+  END DO
+  dsc(1) = 0.
+  dsc(ndati) = 0.
+
+  !costruzione vettori punti intermedi e calcolo della funzione
+  xfi(1) = x(1)
+  DO i=2,np
+    xfi(i) = xfi(i-1)+0.01      
+  END DO 
+
+  !calcolo della funzione in questi punti intermedi
+  DO i=1,np  
+    DO j=1,ndati-1
+      IF(xfi(i)>=x(j) .AND. xfi(i)<x(j+1)) THEN
+        fi(i) = (dsc(j)/(6.*(x(j+1)-x(j))))*(x(j+1)-xfi(i))**3&
+        &+(dsc(j+1)/(6.*(x(j+1)-x(j))))*(xfi(i)-x(j))**3&   
+        &+((y(j)/(x(j+1)-x(j)))-(dsc(j)*(x(j+1)-x(j))/6.))*(x(j+1)-xfi(i))&
+        &+((y(j+1)/(x(j+1)-x(j)))-(dsc(j+1)*(x(j+1)-x(j))/6.))*(xfi(i)-x(j)) 
+      END IF
+    END DO
+  END DO
+
+END SUBROUTINE spline
+!------------------------------------------------------------------------------------------
+
+!------------------------------------------------------------------------------------------
+SUBROUTINE thomas(mat, tnot, n, sol)
+
+  IMPLICIT NONE
+  INTEGER :: n, i, j        
+  REAL*8 :: mat(n, n) , diagsup(n-1), tnot(n), tnot2(n), sol(n)
+
+  !triangolazione matrice
+  DO i=1,n
+    DO j=1,n
+      IF (i==j) THEN
+        IF (i==1) THEN
+          diagsup(i) = mat(i,j+1)/mat(i,j)
+          tnot2(i) = tnot(i)/mat(i,j)
+        ELSE IF (i/=n) THEN
+          diagsup(i) = mat(i,j+1)/(mat(i,j)-mat(i,j-1)*diagsup(i-1))
+          tnot2(i) = (tnot(i)-mat(i,j-1)*tnot2(i-1))/(mat(i,j)-mat(i,j-1)*diagsup(i-1))
+        ELSE
+          tnot2(i) = (tnot(i)-mat(i,j-1)*tnot2(i-1))/(mat(i,j)-mat(i,j-1)*diagsup(i-1))
+        END IF
+      END IF
+    END DO
+  END DO
+
+  !calcolo soluzioni
+  DO i=n,1,-1
+    IF (i==n) THEN
+      sol(i) = tnot2(i)
+    ELSE
+      sol(i) = tnot2(i)-diagsup(i)*sol(i+1)
+    END IF
+  END DO
+
+END SUBROUTINE thomas
+!------------------------------------------------------------------------------------------
+
+!------------------------------------------------------------------------------------------
+SUBROUTINE trovaperiodiemag(x, y, np, nome)
+
+  IMPLICIT NONE
+  INTEGER :: np, i, j, k, intersez, conta
+  REAL*8 :: x(np), y(np), maxy, miny, medy, somma
+  REAL*8 :: periodo, magmed, errorep, errorem, dev
+  REAL*8, ALLOCATABLE :: intersezioni(:), periodi(:)
+  CHARACTER(len=7) :: nome
+
+  maxy = maxval(y)
+  miny = minval(y)
+  medy = (maxy+miny)/2.0d0
+
+  !cacolo numero intersezioni con la retta passante per medy
+  intersez = 0
+  DO i=1,np-1
+    IF ((y(i)<medy .AND. y(i+1)>medy) .OR. (y(i)>medy .AND. y(i+1)<medy)) THEN
+      intersez = intersez+1
+    END IF
+  END DO 
+  ALLOCATE(intersezioni(intersez), periodi(intersez-2))
+  
+  !riempimento vettore ascisse di intersezione e vettore periodi
+  k = 1
+  DO i=2,np-1
+    IF ((y(i)<medy .AND. y(i+1)>medy) .OR. (y(i)>medy .AND. y(i+1)<medy)) THEN
+      intersezioni(k) = x(i)
+      k = k+1
+    END IF
+  END DO
+  DO i=1,intersez-2
+    periodi(i)=intersezioni(i+2)-intersezioni(i)
+  END DO
+
+  !calcolo media periodi
+  somma = 0.0d0 
+  DO i=1,intersez-2
+    somma = somma+periodi(i) 
+  END DO
+  periodo = somma/(intersez-2)
+
+  !calcolo errore media periodi
+  somma = 0.0d0 
+  DO i=1,intersez-2
+    somma = somma+(periodi(i)-periodo)**2 
+  END DO
+  dev = SQRT(somma/(intersez-2.))
+  errorep = dev/SQRT(intersez-2.) 
+
+  !calcolo magnitudine apparente media
+  somma = 0.0d0
+  conta = 0
+  IF (MOD(intersez,2)==1) THEN
+    DO i=1,np
+      IF (intersezioni(1)<=x(i) .AND. x(i)<intersezioni(intersez)) THEN
+        somma = somma+y(i)
+        conta = conta+1
+      END IF
+    END DO
+  ELSE 
+    DO i=1,np
+      IF (intersezioni(1)<=x(i) .AND. x(i)<intersezioni(intersez-1)) THEN
+        somma = somma+y(i)
+        conta = conta+1
+      END IF
+    END DO
+  END IF
+  magmed = somma/conta
+
+  !calcolo errore sulla magnitudine apparente media
+  somma = 0.0d0
+  conta = 0
+  IF (MOD(intersez,2)==1) THEN
+    DO i=1,np
+      IF (intersezioni(1)>=x(i) .AND. x(i)<intersezioni(intersez)) THEN
+        somma = somma+(y(i)-magmed)**2 
+        conta = conta+1
+      END IF  
+    END DO
+  ELSE 
+    DO i=1,np
+      IF (intersezioni(1)>=x(i) .AND. x(i)<intersezioni(intersez-1)) THEN
+        somma = somma+(y(i)-magmed)**2 
+        conta = conta+1
+      END IF  
+    END DO
+  END IF
+  dev = SQRT(somma/REAL(conta)) 
+  errorem = dev/SQRT(REAL(conta))
+
+  !salvataggio risultati su file
+  IF (nome=="NGC0925") THEN
+    OPEN(4, file='periodi_e_magapp.txt', status='replace')
+    CLOSE(4)
+  END IF
+  OPEN(4, file='periodi_e_magapp.txt', position='append')
+  WRITE(4,2) nome, periodo, errorep, magmed, errorem
+  2 FORMAT(A7, F10.2, F10.2, F10.3, F10.3)
+  CLOSE(4)
+
+  DEALLOCATE(intersezioni, periodi)
+
+END SUBROUTINE trovaperiodiemag
+!------------------------------------------------------------------------------------------
+
+!------------------------------------------------------------------------------------------
+SUBROUTINE fitlin(x, y, nd, coeff)
+
+  IMPLICIT NONE
+  INTEGER :: nd, i, j, k
+  REAL*8 :: x(nd), y(nd), coeff(2)
+  REAL*8 :: mat(2,2), c(2), summa
+
+  !costruzione matrice
+  mat = 0.
+  c = 0.
+  DO i=1,2
+    DO j=1,2
+      summa = 0.
+      DO k=1,nd
+        summa = summa+x(k)**(i+j-2)
+      END DO
+      mat(i,j) = summa
+    END DO
+  END DO
+
+  !costruzione vettore termini noti
+  summa = 0.
+  DO k=1,nd
+    summa = summa+y(k)
+  END DO
+  c(1) = summa
+  summa = 0.
+  DO k=1,nd
+    summa = summa+x(k)*y(k)
+  END DO
+  c(2) = summa
+  
+  !risoluzione sistema tramite gauss
+  CALL gauss(mat, c, 2, coeff)
+
+END SUBROUTINE fitlin
+!------------------------------------------------------------------------------------------
+
+!------------------------------------------------------------------------------------------
+SUBROUTINE gauss(a,c,nd,sol)
+  
+  IMPLICIT NONE
+  INTEGER :: nd, i, j, k
+  REAL*8 :: a(nd,nd), c(nd), sol(nd), fakt, summa
+
+  !forward elimination
+  DO i=1,nd-1 
+    DO j=i+1, nd 
+      fakt = a(j,i)/a(i,i)
+      DO k=1,nd
+        a(j,k) = a(j,k)-a(i,k)*fakt
+      END DO
+      c(j) = c(j)-c(i)*fakt
+    END DO
+  END DO
+
+  !back substitution
+  sol(nd) = c(nd)/a(nd,nd)
+  DO i=nd-1,1,-1
+    summa = 0.
+    DO j=i+1,nd
+      summa = summa+a(i,j)*sol(j)
+    END DO
+    sol(i) = (c(i)-summa)/a(i,i)
+  END DO
+
+END SUBROUTINE gauss
+!------------------------------------------------------------------------------------------
+
+!------------------------------------------------------------------------------------------
+SUBROUTINE calcdist(ngal, coeff)
+
+  IMPLICIT NONE
+  INTEGER :: ngal, i
+  REAL*8 :: magapp(ngal), periodi(ngal), magass(ngal), distanza(ngal), coeff(2)
+  REAL*8 :: errmagpp(ngal), errperiodi(ngal), errmagass(ngal), errdistanza(ngal)
+  CHARACTER(len=7) :: nomi(ngal)
+
+  !lettura dati dal file "periodi_e_magapp.txt"
+  OPEN(5, file='periodi_e_magapp.txt')
+  DO i=1,ngal
+    READ(5,*) nomi(i), periodi(i), errperiodi(i), magapp(i), errmagpp(i)
+  END DO
+  CLOSE(5)
+
+  !calcolo della magnitudine assoluta e errore
+  DO i=1,ngal
+    magass(i) = coeff(2)*LOG10(periodi(i))+coeff(1)
+    errmagass(i) = ABS(coeff(2)*(errperiodi(i)/periodi(i)))
+  END DO
+
+  !calcolo della distanza e errore
+  DO i=1,ngal
+    distanza(i) = (10**(0.2*(magapp(i)-magass(i))+1))/(10.**6)
+    errdistanza(i) = ((0.2*LOG(10.)*10**(0.2*(magapp(i)-magass(i))+1))*(errmagass(i)+errmagpp(i)))/(10.**6)
+  END DO
+
+  !salvataggio risultati su file
+  OPEN(7, file='magass_e_dist.txt')
+  DO i=1,ngal
+    WRITE(7,3) nomi(i), magass(i), errmagass(i), distanza(i), errdistanza(i)
+    3 FORMAT(A7, F10.3, F10.3, F10.2, F10.2)
+  END DO
+  CLOSE(7)
+
+END SUBROUTINE calcdist
+!------------------------------------------------------------------------------------------
+
+!------------------------------------------------------------------------------------------
+SUBROUTINE calchubble(ngal, vrec, errvrec, H0, EH0)
+
+  IMPLICIT NONE
+
+  INTEGER :: ngal, i
+  REAL*8 :: H0, EH0
+  REAL*8 :: magass(ngal), errmagass(ngal), distanza(ngal), errdistanza(ngal)
+  REAL*8 :: vrec(ngal), errvrec(ngal), hubble(ngal), errhubble(ngal)
+  CHARACTER(len=7) :: nomi(ngal)
+
+  !lettura dati dal file "magass_e_dist.txt"
+  OPEN(7, file='magass_e_dist.txt')
+  DO i=1,ngal
+    READ(7,*) nomi(i), magass(i), errmagass(i), distanza(i), errdistanza(i)
+  END DO
+  CLOSE(7)
+
+  !calcolo della costante di Hubble per ogni cefeide e errore
+  DO i=1,ngal
+    hubble(i) = vrec(i)/distanza(i)
+    errhubble(i) = (errvrec(i)/vrec(i)+errdistanza(i)/distanza(i))*hubble(i)
+  END DO
+
+  !media pesata di H0 e errore
+  H0 = 0
+  EH0 = 0
+  DO i=1,ngal
+    H0 = H0+errhubble(i)*hubble(i)
+    EH0 = EH0+(1/(errhubble(i)**2))
+  END DO
+  H0 = H0/SUM(errhubble)
+  EH0 = SQRT(1/EH0)
+
+  !salvataggio risultati
+  OPEN(8, file='cost_Hubble_e_err.txt', status='replace')
+  DO i=1,ngal
+    WRITE(8,6) nomi(i), hubble(i), errhubble(i)
+  END DO
+  WRITE(8,7) "MEDIA PESATA", H0, EH0
+  6 FORMAT(A7, F10.1, F10.1)
+  7 FORMAT(A12, F10.1, F10.1)
+  CLOSE(8)
+
+END SUBROUTINE calchubble
+!------------------------------------------------------------------------------------------
+
+!------------------------------------------------------------------------------------------
+SUBROUTINE quadgauss(f, a, b, OmegaM, OmegaL, ris)
+  
+  IMPLICIT NONE
+  
+  REAL*8, EXTERNAL :: f
+  REAL*8 :: a, b, ris, sum, OmegaL, OmegaM
+  REAL*8 :: c(4), x(4), xd(4)
+  INTEGER::i
+
+  xd(1)=SQRT(3./7.-2./7.*SQRT(6./5.))
+  c(1)=(18.+SQRT(30.))/36.
+  c(2)=c(1)
+  xd(2)=-xd(1)
+  c(3)=(18.-SQRT(30.))/36.
+  c(4)=c(3)
+  xd(3)=SQRT(3./7.+2./7.*SQRT(6./5.))
+  xd(4)=-xd(3)
+     
+  DO i=1,4
+    x(i)=0.5*((b+a)+(b-a)*xd(i))
+  END DO
+  
+  sum = 0.
+  DO i=1,4
+    sum = sum+c(i)*f(x(i), OmegaM, OmegaL)
+  END DO
+  ris = sum*(b-a)*0.5
+
+END SUBROUTINE quadgauss
+!------------------------------------------------------------------------------------------
+
+!------------------------------------------------------------------------------------------
+REAL*8 FUNCTION integranda1(x, omegaM, omegaL)
+  
+  IMPLICIT NONE
+  
+  REAL*8 :: x, omegaM, omegaL
+
+  !funzione da integrare
+  integranda1 = 1./((1+x)*SQRT((omegaM*(1+x)**3)+((1-omegaM-omegaL)*(1+x)**2)+omegaL))
+
+END FUNCTION integranda1
+!------------------------------------------------------------------------------------------
+
+!------------------------------------------------------------------------------------------
+REAL*8 FUNCTION integranda2(t, omegaM, omegaL)
+
+  IMPLICIT NONE
+  
+  REAL*8 :: t, OmegaM, OmegaL
+  REAL*8, EXTERNAL :: integranda1
+  
+  !seconda funzione da integrare
+  integranda2 = integranda1(1./t, omegaM, omegaL)/(t**2)
+
+END FUNCTION integranda2
+!------------------------------------------------------------------------------------------
