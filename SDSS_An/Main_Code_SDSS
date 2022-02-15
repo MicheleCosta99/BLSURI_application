@@ -1,0 +1,814 @@
+################################################################## IMPORT LIBRERIE ###############################################################################
+
+import os
+import matplotlib.pyplot as plt
+import numpy as np
+import matplotlib.gridspec as gridspec
+from astropy.io import fits
+from astropy.stats import median_absolute_deviation
+from scipy.stats.stats import pearsonr
+from fpdf import FPDF
+
+
+
+
+################################################################### CREAZIONE E CONTROLLO CARTELLE #############################################################à#
+
+dir_progetto = os.getcwd()
+dir_outputs = dir_progetto+"/outputs/"
+dir_plots = dir_progetto+"/plots/"
+dir_data = dir_progetto+"/data/"
+dir_outputs_2 = dir_outputs+"/outputs_STEP_2/"
+dir_outputs_3 = dir_outputs+"/outputs_STEP_3/"
+dir_outputs_4 = dir_outputs+"/outputs_STEP_4/"
+dir_plots_2 = dir_plots+"/plots_STEP_2/"
+dir_plots_3 = dir_plots+"/plots_STEP_3/"
+dir_plots_4 = dir_plots+"/plots_STEP_4/"
+dir_plots_RedMass = dir_plots_3+"Redshift_Division_StellarMass/"
+dir_plots_RedMagAppU = dir_plots_3+"Redshift_Division_MagAppU/"
+dir_plots_RedMagAssU = dir_plots_3+"Redshift_Division_MagAssU/"
+dir_plots_subCM = dir_plots_4+"subsamples_CM/"
+dir_plots_subBPT = dir_plots_4+"subsamples_BPT/"
+dir_plots_subMS = dir_plots_4+"subsamples_MS/"
+
+A = [dir_outputs, dir_outputs_2, dir_outputs_3, dir_outputs_4, dir_plots, dir_plots_2, dir_plots_3, dir_plots_4,
+     dir_plots_subCM, dir_plots_subBPT, dir_plots_subMS, dir_plots_RedMass, dir_plots_RedMagAppU, dir_plots_RedMagAssU]
+
+for cartella in A:
+    if not os.path.exists(cartella):
+        os.mkdir(cartella)
+        print ("Directory", cartella, "created")
+
+
+
+
+########################################################################## LETTURA FILE (STEP 1) ###############################################################
+        
+dati = fits.open(dir_data+"/data_SDSS_Info.fit")
+catalogo = dati[1].data
+sottocatalogo_43 = catalogo[catalogo["ID"]==43]
+
+IdGalassie = sottocatalogo_43["specobjid"]
+Redshift = sottocatalogo_43["z"]
+MagAppU = sottocatalogo_43["petroMag_u"]
+MagAppG = sottocatalogo_43["petroMag_g"]
+MagAppR = sottocatalogo_43["petroMag_r"]
+MagAppI = sottocatalogo_43["petroMag_i"]
+MagAppZ = sottocatalogo_43["petroMag_z"]
+AlphaFlusso = sottocatalogo_43["h_alpha_flux"]
+Oiii5007Flusso = sottocatalogo_43["oiii_5007_flux"]
+Nii6584Flusso = sottocatalogo_43["nii_6584_flux"]
+BetaFlusso = sottocatalogo_43["h_beta_flux"]
+LogMassaStell = sottocatalogo_43["lgm_tot_p50"]
+LogSFR = sottocatalogo_43["sfr_tot_p50"]
+MagAssU = sottocatalogo_43["absMagU"]
+MagAssG = sottocatalogo_43["absMagG"]
+MagAssR = sottocatalogo_43["absMagR"]
+MagAssI = sottocatalogo_43["absMagI"]
+MagAssZ = sottocatalogo_43["absMagZ"]
+
+IdGalassieTot = catalogo["specobjid"]
+RedshiftTot = catalogo["z"]
+MagAppUTot = catalogo["petroMag_u"]
+MagAppGTot = catalogo["petroMag_g"]
+MagAppRTot = catalogo["petroMag_r"]
+MagAppITot = catalogo["petroMag_i"]
+MagAppZTot = catalogo["petroMag_z"]
+AlphaFlussoTot = catalogo["h_alpha_flux"]
+Oiii5007FlussoTot = catalogo["oiii_5007_flux"]
+Nii6584FlussoTot = catalogo["nii_6584_flux"]
+BetaFlussoTot = catalogo["h_beta_flux"]
+LogMassaStellTot = catalogo["lgm_tot_p50"]
+LogSFRTot = catalogo["sfr_tot_p50"]
+MagAssUTot = catalogo["absMagU"]
+MagAssGTot = catalogo["absMagG"]
+MagAssRTot = catalogo["absMagR"]
+MagAssITot = catalogo["absMagI"]
+MagAssZTot = catalogo["absMagZ"]
+
+print ("STEP 1 COMPLETATO")
+
+
+
+############################################################################ DEFINIZIONE FUNZIONI ###################################################################
+
+#definizione modello gaussiana
+def gauss(bins, mu, sigma):
+    x=np.zeros(len(bins)-1) 
+    for i in range(len(x)):
+        x[i]=(bins[i]+bins[i+1])/2
+    return x, 1/(sigma*np.sqrt(2*np.pi))*np.exp(-(x-mu)**2/(2*sigma**2))
+
+#sigma clipping
+def sigmaclipper(dati):
+    dati = dati[np.logical_and(np.logical_not(np.isnan(dati)), np.logical_not(np.isinf(dati)))]
+    a=False
+    while not a:
+        fuori = dati[np.logical_or(dati<dati.mean()-(dati.std()*4), dati>dati.mean()+(dati.std()*4))]
+        if fuori.size>0:
+            dati= dati[np.logical_and(dati>=dati.mean()-(dati.std()*4), dati<=dati.mean()+(dati.std()*4))]
+        else:
+            a=True
+    return (dati)
+
+#sigma clipping 2.0
+def sigmaclipper2(dati1,dati2):
+    a=False
+    b=False
+    while not a:
+        fuori1 = dati1[np.logical_or(dati1<dati1.mean()-(dati1.std()*4), dati1>dati1.mean()+(dati1.std()*4))]
+        if fuori1.size>0:
+            save1 = dati1
+            dati1 = dati1[np.logical_and(dati1>=dati1.mean()-(dati1.std()*4), dati1<=dati1.mean()+(dati1.std()*4))]
+            dati2 = dati2[np.logical_and(save1>=save1.mean()-(save1.std()*4), save1<=save1.mean()+(save1.std()*4))]
+        else:
+            a=True
+    while not b:
+        fuori2 = dati2[np.logical_or(dati2<dati2.mean()-(dati2.std()*4), dati2>dati2.mean()+(dati2.std()*4))]
+        if fuori2.size>0:
+            save2 = dati2
+            dati2 = dati2[np.logical_and(dati2>=dati2.mean()-(dati2.std()*4), dati2<=dati2.mean()+(dati2.std()*4))]
+            dati1 = dati1[np.logical_and(save2>=save2.mean()-(save2.std()*4), save2<=save2.mean()+(save2.std()*4))]
+        else:
+            b=True
+    return(dati1,dati2)
+
+#sigma clipping 3.0
+def sigmaclipper3(dati1,dati2,dati3):
+    a=False
+    b=False
+    c=False
+    while not a:
+        fuori1 = dati1[np.logical_or(dati1<dati1.mean()-(dati1.std()*4), dati1>dati1.mean()+(dati1.std()*4))]
+        if fuori1.size>0:
+            save1 = dati1
+            dati1 = dati1[np.logical_and(dati1>=dati1.mean()-(dati1.std()*4), dati1<=dati1.mean()+(dati1.std()*4))]
+            dati2 = dati2[np.logical_and(save1>=save1.mean()-(save1.std()*4), save1<=save1.mean()+(save1.std()*4))]
+            dati3 = dati3[np.logical_and(save1>=save1.mean()-(save1.std()*4), save1<=save1.mean()+(save1.std()*4))]
+        else:
+            a=True
+    while not b:
+        fuori2 = dati2[np.logical_or(dati2<dati2.mean()-(dati2.std()*4), dati2>dati2.mean()+(dati2.std()*4))]
+        if fuori2.size>0:
+            save2 = dati2
+            dati2 = dati2[np.logical_and(dati2>=dati2.mean()-(dati2.std()*4), dati2<=dati2.mean()+(dati2.std()*4))]
+            dati1 = dati1[np.logical_and(save2>=save2.mean()-(save2.std()*4), save2<=save2.mean()+(save2.std()*4))]
+            dati3 = dati3[np.logical_and(save2>=save2.mean()-(save2.std()*4), save2<=save2.mean()+(save2.std()*4))]
+        else:
+            b=True
+    while not c:
+        fuori3 = dati3[np.logical_or(dati3<dati3.mean()-(dati3.std()*4), dati3>dati3.mean()+(dati3.std()*4))]
+        if fuori3.size>0:
+            save3 = dati3
+            dati3 = dati3[np.logical_and(dati3>=dati3.mean()-(dati3.std()*4), dati3<=dati3.mean()+(dati3.std()*4))]
+            dati2 = dati2[np.logical_and(save3>=save3.mean()-(save3.std()*4), save2<=save3.mean()+(save3.std()*4))]
+            dati1 = dati1[np.logical_and(save3>=save3.mean()-(save3.std()*4), save2<=save3.mean()+(save3.std()*4))]
+        else:
+            c=True
+    return(dati1,dati2,dati3)
+
+#funzione media
+def media(dati):
+    tot=0
+    for i in dati:
+        tot=tot+i
+    return tot/len(dati)
+
+#funzione deviazione standard
+def dvstd(dati):
+    app=[]
+    for i in range(len(dati)):
+        app.append((dati[i]-dati.mean())**2)
+    std = float(np.sqrt(float(sum(app)/len(app))))
+    return std
+
+#funzione che realizza i grafici di redshift, massa stellare e sfr ==> utilzzate funzioni di media e dvst realizzate nel codice 
+def graficatore(dati, dati2, colore, titolo, titolor, legenda, legenda2):
+    g1=plt.subplot(gt[0])
+    g2=plt.subplot(gt[1])
+    g1.set_title(titolo+" "+legenda, fontsize=9)
+    g2.set_title(titolo+" "+legenda2, fontsize=9)
+    r1=plt.subplot(gt[2])
+    r2=plt.subplot(gt[3])
+    r1.set_title(titolor+" "+legenda, fontsize=7)
+    r2.set_title(titolor+" "+legenda2, fontsize=7)
+    
+    counts1, bins1, ign = g1.hist(dati, int(np.sqrt(len(dati))), histtype="bar", density=True, align="mid", color=colore, label=legenda)
+    xm1, mod1 = gauss(bins1, media(dati), dvstd(dati))
+    g1.plot(xm1, mod1, c="black", ls="-", lw="1", label=legenda)
+    g1.axvline(dati.mean(), color="black", lw="1", ls="--")
+
+    residuo1=(counts1-mod1)
+    r1.scatter(xm1, residuo1, c=colore, label="residui "+legenda)
+    r1.axhline(media(residuo1), color="black", lw="1", ls="--")
+    r1.axhspan(residuo1.mean()-residuo1.std(), residuo1.mean()+residuo1.std(), color="gray", alpha=0.35)
+
+    counts2, bins2, ign2 = g2.hist(dati2, int(np.sqrt(len(dati2))), histtype="stepfilled", density=True, align="mid", color=colore, label=legenda2, alpha=0.5)
+    xm2, mod2 = gauss(bins2, dati2.mean(), dati2.std())
+    g2.plot(xm2, mod2, c="black", ls="-", lw="1", label=legenda2)
+    g2.axvline(dati2.mean(), color="black", lw="1", ls="--")
+
+    residuo2=(counts2-mod2)
+    r2.scatter(xm2, residuo2, c=colore, label="residui "+legenda2, alpha=0.5)
+    r2.axhline(residuo2.mean(), color="black", lw="1", ls="--")
+    r2.axhspan(residuo2.mean()-residuo2.std(), residuo2.mean()+residuo2.std(), color="gray", alpha=0.35)
+
+    g1.legend(loc=0, prop={"size":7})
+    g2.legend(loc=0, prop={"size":7})
+    r1.legend(loc=0, prop={"size":7})
+    r2.legend(loc=0, prop={"size":7})
+   
+#funzione che realizza i grafici dei flussi e delle magnitudini
+def graficatore2(pos, flussi, flussi2, colore, titolo, titolor, legenda, legenda2):
+    g1=plt.subplot(gf[pos])
+    g2=plt.subplot(gf[pos+1])
+
+    counts1, bins1, ign = g1.hist(flussi, int(np.sqrt(len(flussi))), histtype="bar", density=True, align="mid", color=colore, label=legenda)
+    xm1, mod1 = gauss(bins1, flussi.mean(), flussi.std())
+    g1.plot(xm1, mod1, c="black", ls="-", lw="1", label=legenda)
+    g1.axvline((flussi.mean()), color="black", lw="1", ls="--")
+    g1.set_title(titolo+"\n"+legenda, fontsize=8)
+    g1.legend(loc=0, prop={"size":7})
+
+    counts2, bins2, ign2 = g2.hist(flussi2, int(np.sqrt(len(flussi2))), histtype="bar", density=True, align="mid", color=colore, label=legenda2, alpha=0.5)
+    xm2, mod2 = gauss(bins2, flussi2.mean(), flussi2.std())
+    g2.plot(xm2, mod2, c="black", ls="-", lw="1", label=legenda2)
+    g2.axvline((flussi2.mean()), color="black", lw="1", ls="--")
+    g2.set_title(titolo+"\n"+legenda2, fontsize=8)
+    g2.legend(loc=0, prop={"size":7})
+
+    r1=plt.subplot(gf[pos+4])
+    r2=plt.subplot(gf[pos+5])
+
+    residuo1=(counts1-mod1)
+    r1.scatter(xm1, residuo1, c=colore, label="residui "+legenda)
+    r1.set_title(titolor+"\n"+legenda, fontsize=8)
+    r1.axhline(residuo1.mean(), color="black", lw="1", ls="--")
+    r1.axhspan(residuo1.mean()-residuo1.std(), residuo1.mean()+residuo1.std(), color="gray", alpha=0.35)
+    r1.legend(loc=0, prop={"size":7})
+    
+    residuo2=(counts2-mod2)
+    r2.scatter(xm2, residuo2, c=colore, label="residui "+legenda2, alpha=0.5)
+    r2.set_title(titolor+"\n"+legenda2, fontsize=8)
+    r2.axhline(residuo2.mean(), color="black", lw="1", ls="--")
+    r2.axhspan(residuo2.mean()-residuo2.std(), residuo2.mean()+residuo2.std(), color="gray", alpha=0.35)
+    r2.legend(loc=0, prop={"size":7})
+
+#funzione che realizza i grafici in funzione del redshift
+def graficatore_ifr(pos, dati1, dati2, y_bft, colore, titolo, label):
+    gfr1=plt.subplot(gq[pos])
+    m, n = sigmaclipper2(dati1, dati2)
+    gfr1.scatter(m, n, s=10, c=colore)
+    if pos != 3 and pos !=4:
+        gfr1.plot(sorted(Redshift), y_bft, ls="--", c="black")
+        gfr1.axvspan(min(Redshift), min(Redshift)+(max(Redshift)-min(Redshift))/3, alpha=0.25, color="cyan", label="1st redshift bin")
+        gfr1.axvspan(min(Redshift)+(max(Redshift)-min(Redshift))/3, min(Redshift)+2*(max(Redshift)-min(Redshift))/3, alpha=0.2, color="yellow", label="2nd redshift bin")
+        gfr1.axvspan(min(Redshift)+2*(max(Redshift)-min(Redshift))/3, max(Redshift), alpha=0.25, color="green", label="3rd redshift bin")
+        gfr1.legend(loc=0, prop={'size': 8})
+    gfr1.set_title(titolo, fontsize=12)
+    gfr1.set_xlabel("redshift")
+    gfr1.set_ylabel(label)
+
+#funzione che realizza la divisione in intervalli basati sul redshift
+def divisore(save, dati, nbins):
+    k=0
+    while k < nbins:
+        save.append(dati[np.logical_and(Redshift >= min(Redshift)+k*((max(Redshift)-min(Redshift))/nbins),
+                                      Redshift <= min(Redshift)+(k+1)*((max(Redshift)-min(Redshift))/nbins))])
+        k = k+1
+    return (save)
+
+#funione che analizza i sottocampioni in funzione dei gruppi di redshift
+def graficatore_gruppi_ifr(dati, colore, titolo):
+    g1=plt.subplot(gr[0])
+    g1.set_title(titolo, fontsize=18)
+    r1=plt.subplot(gr[1])
+    r1.set_title("Residui", fontsize=20)
+    
+    counts1, bins1, ign = g1.hist(dati, int(np.sqrt(len(dati))), histtype="bar", density=True, align="mid", color=colore, alpha=0.5, label="sottocatalogo 43")
+    xm1, mod1 = gauss(bins1, dati.mean(), dati.std())
+    g1.plot(xm1, mod1, c="black", ls="-", lw="1", label="sottocatalogo 43")
+    g1.axvline(dati.mean(), color="black", lw="1", ls="--")
+
+    residuo1=(counts1-mod1)
+    r1.scatter(xm1, residuo1, c=colore)
+    r1.axhline(media(residuo1), color="black", lw="1", ls="--")
+    r1.axhspan(media(residuo1)-dvstd(residuo1), media(residuo1)+dvstd(residuo1), color="gray", alpha=0.35)
+
+    g1.legend(loc=0)
+
+#funzione che realizza e grafica l'analisi dei subsamples
+def sottocatalograficatore(numimm,a,b,cartella, legenda_1, legenda_2):
+    #redshift, sfr, massa stellare (chiamata funzioni)
+    dati_tbp1 = [sigmaclipper(a["z"]), sigmaclipper(a["lgm_tot_p50"]), sigmaclipper(a["sfr_tot_p50"])]
+    dati_tbp2 = [sigmaclipper(b["z"]), sigmaclipper(b["lgm_tot_p50"]), sigmaclipper(b["sfr_tot_p50"])]
+
+    p=0
+    for i in dati_tbp1:
+        plt.figure(p+numimm, figsize=(8, 8))
+        graficatore(i, dati_tbp2[p], colori[p], titoli[p], titoli_r[p], legenda_1, legenda_2)
+        plt.savefig(cartella+titoli_g[p], bbox_inches='tight')
+        plt.close()
+        p=p+1
+
+    #magnitudini apparenti (chiamata funzioni)
+    magnitudini_apparenti_1 = [sigmaclipper(a["petroMag_u"]), sigmaclipper(a["petroMag_g"]), sigmaclipper(a["petroMag_r"]),
+                               sigmaclipper(a["petroMag_i"]), sigmaclipper(a["petroMag_z"])]
+    magnitudini_apparenti_2 = [sigmaclipper(b["petroMag_u"]), sigmaclipper(b["petroMag_g"]), sigmaclipper(b["petroMag_r"]),
+                                 sigmaclipper(b["petroMag_i"]), sigmaclipper(b["petroMag_z"])]
+
+    plt.figure(numimm+3, figsize=(16, 8))
+    plt.suptitle("Magnitudini apparenti 1 di 3", fontsize=14)
+    p=0
+    while p<2:
+        graficatore2(2*p,magnitudini_apparenti_1[p],magnitudini_apparenti_2[p],colorimagnitudini_apparenti[p], titolimagnitudini_apparenti[p],
+                          titolirmagnitudini_apparenti[p],legenda_1, legenda_2)
+        p=p+1
+    plt.savefig(cartella+"Grafico_magnitudini_apparenti1.png")
+    plt.close()
+
+    plt.figure(numimm+4, figsize=(16, 8))
+    plt.suptitle("magnitudini apparenti 2 di 3", fontsize=14)
+    p=0
+    while p<2:
+        graficatore2(2*p,magnitudini_apparenti_1[p+2],magnitudini_apparenti_2[p+2],colorimagnitudini_apparenti[p+2], titolimagnitudini_apparenti[p+2],
+                          titolirmagnitudini_apparenti[p+2],legenda_1, legenda_2)
+        p=p+1
+    plt.savefig(cartella+"Grafico_magnitudini_apparenti2.png")
+    plt.close()
+
+    plt.figure(numimm+5, figsize=(16, 8))
+    plt.suptitle("magnitudini apparenti 3 di 3", fontsize=14)
+    p=0
+    while p<1:
+        graficatore2(2*p,magnitudini_apparenti_1[4],magnitudini_apparenti_2[4],colorimagnitudini_apparenti[4], titolimagnitudini_apparenti[4],
+                          titolirmagnitudini_apparenti[4],legenda_1, legenda_2)
+        p=p+1
+    plt.savefig(cartella+"Grafico_magnitudini_apparenti3.png")
+    plt.close()
+
+    #magnitudini assolute (chiamata funzioni)
+    magnitudini_assolute_1 = [sigmaclipper(a["absMagU"]), sigmaclipper(a["absMagG"]), sigmaclipper(a["absMagR"]),
+                                 sigmaclipper(a["absMagI"]), sigmaclipper(a["absMagZ"])]
+    magnitudini_assolute_2 = [sigmaclipper(b["absMagU"]), sigmaclipper(b["absMagG"]), sigmaclipper(b["absMagR"]),
+                                 sigmaclipper(b["absMagI"]), sigmaclipper(b["absMagZ"])]
+
+    plt.figure(numimm+6, figsize=(16, 8))
+    plt.suptitle("Magnitudini assolute 1 di 3", fontsize=14)
+    p=0
+    while p<2:
+        graficatore2(2*p,magnitudini_assolute_1[p],magnitudini_assolute_2[p],colorimagnitudini_assolute[p], titolimagnitudini_assolute[p],
+                          titolirmagnitudini_assolute[p],legenda_1, legenda_2)
+        p=p+1
+    plt.savefig(cartella+"Grafico_magnitudini_assolute1.png")
+    plt.close()
+
+    plt.figure(numimm+7, figsize=(16, 8))
+    plt.suptitle("magnitudini assolute 2 di 3", fontsize=14)
+    p=0
+    while p<2:
+        graficatore2(2*p,magnitudini_assolute_1[p+2],magnitudini_assolute_2[p+2],colorimagnitudini_assolute[p+2], titolimagnitudini_assolute[p+2],
+                          titolirmagnitudini_assolute[p+2],legenda_1, legenda_2)
+        p=p+1
+    plt.savefig(cartella+"Grafico_magnitudini_assolute2.png")
+    plt.close()
+
+    plt.figure(numimm+8, figsize=(16, 8))
+    plt.suptitle("magnitudini assolute 3 di 3", fontsize=14)
+    p=0
+    while p<1:
+        graficatore2(2*p,magnitudini_assolute_1[4],magnitudini_assolute_2[4],colorimagnitudini_assolute[4], titolimagnitudini_assolute[4],
+                          titolirmagnitudini_assolute[4],legenda_1, legenda_2)
+        p=p+1
+    plt.savefig(cartella+"Grafico_magnitudini_assolute3.png")
+    plt.close()
+
+    #flussi (chiamata funzioni)
+    flussi_1 = [sigmaclipper(a["h_alpha_flux"]), sigmaclipper(a["h_beta_flux"]), sigmaclipper(a["oiii_5007_flux"]), sigmaclipper(a["nii_6584_flux"])]
+    flussi_2 = [sigmaclipper(b["h_alpha_flux"]), sigmaclipper(b["h_beta_flux"]), sigmaclipper(b["oiii_5007_flux"]), sigmaclipper(b["nii_6584_flux"])]
+
+    plt.figure(numimm+9, figsize=(16, 8))
+    plt.suptitle("Flussi 1 di 2", fontsize=14)
+    p=0
+    while p<2:
+        graficatore2(2*p,flussi_1[p],flussi_2[p],coloriflussi[p], titoliflussi[p], titolirflussi[p],legenda_1, legenda_2)
+        p=p+1
+
+    plt.savefig(cartella+"Grafico_flussi1.png")
+    plt.close()
+
+    plt.figure(numimm+10, figsize=(16, 8))
+    plt.suptitle("Flussi 2 di 2", fontsize=14)
+    p=0
+    while p<2:
+        graficatore2(2*p,flussi_1[p+2],flussi_2[p+2],coloriflussi[p+2], titoliflussi[p+2], titolirflussi[p+2],legenda_1, legenda_2)
+        p=p+1
+
+    plt.savefig(cartella+"Grafico_flussi2.png")
+    plt.close()
+    
+#funzione che confronta variabili x e y dei grafici dello step 4
+def confrontatorexy(numimm,xvar1,yvar1,xvar2,yvar2,cartella,titolox,titoloy,titolorx,titolory,titolosott1,titolosott2, colore):
+    plt.figure(numimm, figsize=(8, 6.2))
+    if titolox != "Distribuzione logaritmo\n massa stellare":
+        graficatore(xvar1, xvar2, colore, titolox, titolorx, titolosott1, titolosott2)
+        plt.savefig(cartella+"confronto_x_variable")
+        plt.close()
+    plt.figure(numimm+1, figsize=(8, 6.2))
+    graficatore(yvar1, yvar2, colore, titoloy, titolory, titolosott1, titolosott2)
+    plt.savefig(cartella+"confronto_y_variable")
+    plt.close()
+
+#funzione che crea file risultati step 2 e 4
+def realizzafile(cartella,titolotot, titolo1, titolo2, campione1, campione2, imm):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", size = 15)
+    pdf.set_text_color(255,0,0)
+    pdf.write(5,titolo1)
+    pdf.set_font("Arial", size = 12)
+    pdf.set_text_color(0,0,0)
+    for k in  range(len(campione1)):
+        pdf.write(5,"\n\n\nMedia "+N[k]+" = %r" %(media(campione1[k])))
+        pdf.write(5,"\n\nDeviazione standard "+N[k]+" = %r" %(campione1[k].std()))
+        pdf.write(5,"\n\nMediana "+N[k]+" = %r" %(np.percentile(campione1[k],50)))
+        pdf.write(5,"\n\n16esimo percentile "+N[k]+" = %r" %(np.percentile(campione1[k],16)))
+        pdf.write(5,"\n\n84esimo percentile "+N[k]+" = %r" %(np.percentile(campione1[k],84)))
+        pdf.write(5,"\n\nMAD "+N[k]+" = %r" %(median_absolute_deviation(campione1[k])))
+    
+    pdf.set_font("Arial", "B", size = 15)
+    pdf.set_text_color(255,0,0)
+    pdf.write(5,titolo2)
+    pdf.set_font("Arial", size = 12)
+    pdf.set_text_color(0,0,0)
+    for k in  range(len(campione2)):
+        pdf.write(5,"\n\n\nMedia "+N[k]+" = %r" %(media(campione2[k])))
+        pdf.write(5,"\n\nDeviazione standard "+N[k]+" = %r" %(campione2[k].std()))
+        pdf.write(5,"\n\nMediana "+N[k]+" = %r" %(np.percentile(campione2[k],50)))
+        pdf.write(5,"\n\n16esimo percentile "+N[k]+" = %r" %(np.percentile(campione2[k],16)))
+        pdf.write(5,"\n\n84esimo percentile "+N[k]+" = %r" %(np.percentile(campione2[k],84)))
+        pdf.write(5,"\n\nMAD "+N[k]+" = %r" %(median_absolute_deviation(campione2[k])))
+
+    for r in range(len(imm)):
+        if r==0:
+            pdf.ln()
+            pdf.ln()
+            pdf.image(name=imm[r], x=10, w=55)
+            y=pdf.get_y()
+            x=pdf.get_x()
+        elif r==1:
+            pdf.image(name=imm[r], x=+75, y=y-55, w=55)
+        elif r==2:
+            pdf.image(name=imm[r], x=140, y=y-55, w=55)
+            pdf.ln()
+        else:
+            pdf.image(name=imm[r], x=10, w=170)
+    pdf.output(cartella+titolotot+".pdf")
+    pdf.close()
+
+
+
+############################################################### ANALISI DISTRIBUZIONE STATISTICA (STEP 2) ########################################################
+
+#parametri grafici e definzione figure
+plt.rcParams["axes.grid"] = True
+plt.rcParams["axes.edgecolor"] = "black"
+plt.rcParams["axes.facecolor"] = "white"
+
+gt=gridspec.GridSpec(2,2, wspace=0.3, hspace=0.3)
+gf=gridspec.GridSpec(2,4, wspace=0.3, hspace=0.3)
+
+
+#definizione vettori per realizzare le immagini
+colori = ["r", "#C50D66", "limegreen"]
+titoli = ["Distribuzione redshift", "Distribuzione logaritmo della \n massa stellare", "Distribuzione logaritmo SFR\n"]
+titoli_r = ["Grafico residui del \n redshift", "Grafico residui del logaritmo \n della massa stellare", "Grafico residui del logaritmo \n dello SFR"]
+titoli_g =["Grafico_redshift.png", "Grafico_logaritmo_massa_stellare.png", "Grafico_logaritmo_SFR.png"]
+
+colorimagnitudini_apparenti = ["red","gold","aqua","orange", "mediumpurple"]
+titolimagnitudini_apparenti = ["Distribuzione magnitudine apparente U","Distribuzione magnitudine apparente G",
+                               "Distribuzione magnitudine apparente R","Distribuzione magnitudine apparente I","Distribuzione magnitudine apparente Z"]
+titolirmagnitudini_apparenti = ["Grafico residui magnitudine apparente U","Grafico residui magnitudine apparente G",
+                                "Grafico residui magnitudine apparente R","Grafico residui magnitudine apparente I","Grafico residui magnitudine apparente Z"]
+
+colorimagnitudini_assolute = ["red","gold","aqua","orange", "mediumpurple"]
+titolimagnitudini_assolute = ["Distribuzione magnitudine assoluta U","Distribuzione magnitudine assoluta G",
+                              "Distribuzione magnitudine assoluta R","Distribuzione magnitudine assoluta I","Distribuzione magnitudine assoluta Z"]
+titolirmagnitudini_assolute = ["Grafico residui magnitudine assoluta U","Grafico residui magnitudine assoluta G",
+                               "Grafico residui magnitudine assoluta R","Grafico residui magnitudine assoluta I","Grafico residui magnitudine assoluta Z"]
+
+titoliflussi = ["Distribuzione Alpha flusso", "Distribuzione Beta flusso", "Distribuzione Oiii 5007 flusso", "Distribuzione Nii 6584 Flusso"]
+coloriflussi = ["chocolate", "y", "c", "seagreen"]
+titolirflussi = ["Grafico residui Alpha flusso", "Grafico residui Beta flusso", "Grafico residui Oiii 5007 flusso", "Grafico residui Nii6584 Flusso"]
+
+
+#chiamata funzione che realizza i grafici
+sottocatalograficatore(1,sottocatalogo_43, catalogo, dir_plots_2, "sottocatalogo 43", "catalogo totale")
+print ("STEP 2 COMPLETATO") 
+
+
+
+################################################################# ANALISI IN FUNZIONE DEL REDSHIFT (STEP 3) #######################################################
+
+lista_ifr = [LogMassaStell, MagAppU, MagAssU, AlphaFlusso, LogSFR]
+titoli_ifr = ["Grafico della distribuzione \n del logaritmo della massa \n stellare in funzione del redshift",
+              "Grafico della distribuzione \n della magnitudine apparente \n U in funzione del redshift",
+              "Grafico della distribuzione \n della magnitudine assoluta \n U in funzione del redshift",
+              "Grafico della distribuzione \n dell Alpha flusso \n in funzione del redshift",
+              "Grafico della distribuzione \n del logaritmo dello SFR \n in funzione del redshift"]              
+colori_ifr = ["#C50D66","r","r","chocolate","lime"]
+labels = ["logaritmo massa stellare", "magnitudine apparente U", "magnitudine assoluta U", "Alpha flusso", "logaritmo dello SFR"]
+
+gq=gridspec.GridSpec(2,3, wspace=0.35, hspace=0.45)
+plt.figure(8, figsize=(15, 10))
+
+p=0
+
+
+for i in lista_ifr:
+    res=np.polyfit(Redshift, i, 1)
+    y_bf=np.polyval(res,sorted(Redshift))
+    graficatore_ifr(p,Redshift,i,y_bf,colori_ifr[p],titoli_ifr[p],labels[p])
+    p=p+1
+
+plt.savefig(dir_plots_3+"Grafico_ifr.png")
+plt.close()
+
+#creazione intervalli di redshift tramite il richiamo della funzione divisore
+LMS1,LMS2,LMS3 = divisore([], LogMassaStell, 3)[0], divisore([], LogMassaStell, 3)[1], divisore([], LogMassaStell, 3)[2]
+MAppU1,MAppU2,MAppU3 = divisore([], MagAppU, 3)[0], divisore([], MagAppU, 3)[1], divisore([], MagAppU, 3)[2]
+MAssU1,MAssU2,MAssU3 = divisore([], MagAssU, 3)[0], divisore([], MagAssU, 3)[1], divisore([], MagAssU, 3)[2]
+
+dati_tbp_ifr= [sigmaclipper(LMS1), sigmaclipper(LMS2), sigmaclipper(LMS3), sigmaclipper(MAppU1), sigmaclipper(MAppU2), sigmaclipper(MAppU3),
+               sigmaclipper(MAssU1), sigmaclipper(MAssU2), sigmaclipper(MAssU3)]
+
+titoli_tbp_ifr= ["Distribuzione logaritmo massa stellare\n(Redshift <= {} ) ".format(round(min(Redshift)+(max(Redshift)-min(Redshift))/3, 5)),
+                 "Distribuzione logaritmo massa stellare\n( {} < Redshift <= {} )".format(round(min(Redshift)+(max(Redshift)-min(Redshift))/3, 5), round(min(Redshift)+2*(max(Redshift)-min(Redshift))/3, 5)),
+                 "Distribuzione logaritmo massa stellare\n(Redshift > {} )".format(round(min(Redshift)+2*(max(Redshift)-min(Redshift))/3, 5)),
+                 "Distribuzione magnitudine apparente U \n(Redshift <= {} )".format(round(min(Redshift)+(max(Redshift)-min(Redshift))/3, 5)),
+                 "Distribuzione Magnitudine apparente U\n( {} < Redshift <= {} )".format(round(min(Redshift)+(max(Redshift)-min(Redshift))/3, 5), round(min(Redshift)+2*(max(Redshift)-min(Redshift))/3, 5)),
+                 "Distribuzione Magnitudine apparente U \n(Redshift > {} )".format(round(min(Redshift)+2*(max(Redshift)-min(Redshift))/3, 5)),
+                 "Distribuzione magnitudine assoluta U \n(Redshift <= {} )".format(round(min(Redshift)+(max(Redshift)-min(Redshift))/3, 5)),
+                 "Distribuzione Magnitudine assoluta U\n( {} < Redshift <= {} )".format(round(min(Redshift)+(max(Redshift)-min(Redshift))/3, 5), round(min(Redshift)+2*(max(Redshift)-min(Redshift))/3, 5)),
+                 "Distribuzione Magnitudine assoluta U \n(Redshift > {} )".format(round(min(Redshift)+2*(max(Redshift)-min(Redshift))/3, 5))]
+
+titolif_tbp_ifr= ["Log_massa_stellare_1st_redshift_bin", "Log_massa_stellare_2nd_redshift_bin", "Log_massa_stellare_3rd_redshift_bin",
+                 "Mag_app_U_1st_redshift_bin", "Mag_app_U_2nd_redshift_bin", "Mag_app_U_3rd_redshift_bin",
+                 "Mag_ass_U_1st_redshift_bin", "Mag_ass_U_2nd_redshift_bin", "Mag_ass_U_3rd_redshift_bin"]
+
+colori_tbp_ifr= ["#C50D66", "#C50D66", "#C50D66",
+                 "red", "red", "red",
+                 "darkorange", "darkorange", "darkorange"]
+
+cartelle_ifr = [dir_plots_RedMass, dir_plots_RedMass, dir_plots_RedMass,
+                dir_plots_RedMagAppU, dir_plots_RedMagAppU, dir_plots_RedMagAppU,
+                dir_plots_RedMagAssU, dir_plots_RedMagAssU, dir_plots_RedMagAssU]
+
+gr=gridspec.GridSpec(2,1, wspace=0.3, hspace=0.3)
+
+p=8
+for i in dati_tbp_ifr:
+    plt.figure(p, figsize=(7, 10))
+    graficatore_gruppi_ifr(i, colori_tbp_ifr[p-8], titoli_tbp_ifr[p-8])
+    plt.savefig(cartelle_ifr[p-8]+titolif_tbp_ifr[p-8])
+    plt.close()
+    p=p+1
+print ("STEP 3 COMPLETATO")
+
+
+
+############################################# REALIZZAZIONE GRAFICI BPT, CM, MS E ANALISI CAMPIONE DIVSO (STEP 4) ##################################################
+
+#grafico bpt
+plt.figure(18, figsize=(15, 10))
+axes = plt.gca()
+Nii6584FlussoNew = []
+Oiii5007FlussoNew = []
+AlphaFlussoNew = []
+BetaFlussoNew = []
+RedshiftNew = []
+
+for i in range(len(AlphaFlusso)):
+    if AlphaFlusso[i] != 0 and BetaFlusso[i] != 0:
+        if Nii6584Flusso[i]/AlphaFlusso[i] > 0 and Oiii5007Flusso[i]/BetaFlusso[i] > 0:
+            Nii6584FlussoNew.append(Nii6584Flusso[i])
+            Oiii5007FlussoNew.append(Oiii5007Flusso[i])
+            AlphaFlussoNew.append(AlphaFlusso[i])
+            BetaFlussoNew.append(BetaFlusso[i])
+            RedshiftNew.append(Redshift[i])
+
+x_bpt,y_bpt,r_bpt= sigmaclipper3(np.log10(np.array(Nii6584FlussoNew)/np.array(AlphaFlussoNew)),
+                                 np.log10(np.array(Oiii5007FlussoNew)/np.array(BetaFlussoNew)),
+                                 np.array(RedshiftNew))
+cs=plt.scatter(x_bpt, y_bpt, c=r_bpt, cmap="rainbow", s=30)
+cb=plt.colorbar(cs)
+cb.ax.set_ylabel('Redshift', rotation=270, fontsize=18)
+x_bpt.sort()
+x_bptplot=x_bpt[x_bpt<0.05]
+plt.plot(x_bptplot,0.61/(x_bptplot-0.05)+1.3, ls="--", c="black")
+axes.set_ylim([-1.5,1.5])
+
+plt.title("Grafico bpt", fontsize=28)
+plt.xlabel("log( Nii6584Flusso / AlphaFlusso )", fontsize=17)
+plt.ylabel("log( Oiii5007Flusso / BetaFlusso )", fontsize=17)
+plt.savefig(dir_plots_4+"Grafico_bpt.png")
+plt.close()
+
+#grafico massa-sfr
+plt.figure(19, figsize=(15, 10) )
+x_ms,y_ms,r_ms = sigmaclipper3(LogMassaStell, LogSFR, Redshift)
+cs=plt.scatter(x_ms, y_ms, c=r_ms, cmap="rainbow", s=30)
+cb=plt.colorbar(cs)
+cb.ax.set_ylabel('Redshift', rotation=270, fontsize=18)
+x_ms.sort()
+plt.plot(x_ms, -8.64 + 0.76*x_ms, ls="--", color="black") 
+
+plt.title("Grafico logaritmo massa stellare - SFR", fontsize=28)
+plt.xlabel("log( Stellar Mass )", fontsize=17)
+plt.ylabel("log( SFR )", fontsize=17)
+plt.savefig(dir_plots_4+"Grafico_mass_sfr.png")
+plt.close()
+
+#grafico color-mass
+plt.figure(20, figsize=(15, 10) )
+x_cm,y_cm,r_cm = sigmaclipper3(LogMassaStell, MagAssU-MagAssR, Redshift)
+cs=plt.scatter(x_cm, y_cm, c=r_cm, cmap="rainbow", s=30)
+cb=plt.colorbar(cs)
+cb.ax.set_ylabel('Redshift', rotation=270, fontsize=18)
+x_cm.sort()
+plt.plot(x_cm, -0.495 + 0.25*x_cm, ls="--", color="black")
+
+plt.title("Grafico color - mass", fontsize=28)
+plt.xlabel("log( Stellar Mass )", fontsize=17)
+plt.ylabel("color (u - r)", fontsize=17)
+plt.savefig(dir_plots_4+"Grafico_color_mass.png")
+plt.close()
+
+#divisione campione in base alle relazioni teoriche
+sottocatalogoCM1 = sottocatalogo_43[(sottocatalogo_43["absMagU"]- sottocatalogo_43["absMagR"]) > (-0.495 + 0.25*sottocatalogo_43["lgm_tot_p50"])]
+sottocatalogoCM2 = sottocatalogo_43[(sottocatalogo_43["absMagU"]- sottocatalogo_43["absMagR"]) <= (-0.495 + 0.25*sottocatalogo_43["lgm_tot_p50"])]
+
+sottocatalogoMS1 = sottocatalogo_43[sottocatalogo_43["sfr_tot_p50"] > (-8.64 + 0.76*sottocatalogo_43["lgm_tot_p50"])]
+sottocatalogoMS2 = sottocatalogo_43[sottocatalogo_43["sfr_tot_p50"] <= (-8.64 + 0.76*sottocatalogo_43["lgm_tot_p50"])]
+                                                             
+sottocatalogointermedioBPT = sottocatalogo_43[np.logical_and(sottocatalogo_43["h_alpha_flux"] != 0, sottocatalogo_43["h_beta_flux"] != 0), ]
+sottocatalogointermedioBPT = sottocatalogointermedioBPT[np.logical_and(sottocatalogointermedioBPT["nii_6584_flux"]/sottocatalogointermedioBPT["h_alpha_flux"] > 0,
+                                     sottocatalogointermedioBPT["oiii_5007_flux"]/sottocatalogointermedioBPT["h_beta_flux"] > 0)]
+
+sottocatalogoBPT1 = sottocatalogointermedioBPT[np.logical_or(np.log10(sottocatalogointermedioBPT["oiii_5007_flux"]/sottocatalogointermedioBPT["h_beta_flux"]) >
+                                     (0.61/(np.log10(sottocatalogointermedioBPT["nii_6584_flux"]/sottocatalogointermedioBPT["h_alpha_flux"])-0.05) + 1.3),
+                                      np.log10(sottocatalogointermedioBPT["nii_6584_flux"]/sottocatalogointermedioBPT["h_alpha_flux"]) > 0.05)]
+sottocatalogoBPT2 = sottocatalogointermedioBPT[np.logical_and(np.log10(sottocatalogointermedioBPT["oiii_5007_flux"]/sottocatalogointermedioBPT["h_beta_flux"]) <=
+                                     (0.61/(np.log10(sottocatalogointermedioBPT["nii_6584_flux"]/sottocatalogointermedioBPT["h_alpha_flux"])-0.05) + 1.3),
+                                      np.log10(sottocatalogointermedioBPT["nii_6584_flux"]/sottocatalogointermedioBPT["h_alpha_flux"]) <= 0.05)]
+
+#chiamata funzione sottocatalograficatore
+sottocatalograficatore(25, sottocatalogoCM1, sottocatalogoCM2, dir_plots_subCM,
+                       "sottocampione CM1\n(early-type galaxies)", "sottocampione\nCM2 (late-type galaxes)")
+sottocatalograficatore(36,sottocatalogoMS1, sottocatalogoMS2, dir_plots_subMS,
+                       "sottocampione\nMS1 (starforming galaxies)", "sottocampione\nMS2 (passive galaxes)")
+sottocatalograficatore(47,sottocatalogoBPT1, sottocatalogoBPT2, dir_plots_subBPT,
+                       "sottocampione BPT1", "sottocampione BPT2")
+
+#chiamata confrontatore
+confrontatorexy(58, sigmaclipper(sottocatalogoCM1["lgm_tot_p50"]), sigmaclipper(sottocatalogoCM1["absMagU"]-sottocatalogoCM1["absMagR"]),
+                sigmaclipper(sottocatalogoCM2["lgm_tot_p50"]), sigmaclipper(sottocatalogoCM2["absMagU"]-sottocatalogoCM2["absMagR"]), dir_plots_subCM,
+                "Distribuzione logaritmo\n massa stellare", "Distribuzione colore (u-r)\n",
+                "Residui logaritmo\n massa stellare", "Residui colore (u-r)\n",
+                "sottocampione CM1 \n(early-type galaxies)", "sottocampione CM2 \n(late-type galaxes)", "lime")
+confrontatorexy(60, sigmaclipper(np.log10(sottocatalogoBPT1["nii_6584_flux"]/sottocatalogoBPT1["h_alpha_flux"])),
+                sigmaclipper(np.log10(sottocatalogoBPT1["oiii_5007_flux"]/sottocatalogoBPT1["h_beta_flux"])),
+                sigmaclipper(np.log10(sottocatalogoBPT2["nii_6584_flux"]/sottocatalogoBPT2["h_alpha_flux"])),
+                sigmaclipper(np.log10(sottocatalogoBPT2["oiii_5007_flux"]/sottocatalogoBPT2["h_beta_flux"])), dir_plots_subBPT,
+                "Distribuzione Log( Nii6584Flusso / AlphaFlusso )\n", "Distribuzione Log( Oiii5007Flusso / BetaFlusso )\n",
+                "Residui Log( Nii6584Flusso / AlphaFlusso )\n", "Residui Log( Oiii5007Flusso / BetaFlusso )\n",
+                "sottocampione BPT1", "sottocampione BPT2", "turquoise")
+
+print ("STEP 4 COMPLETATO")
+
+
+
+############################################################### RIEMPIMENTO FILE RISULTATI (STEP 5) ############################################################
+
+#creazione liste quantità da analizzare
+L=[sigmaclipper(Redshift), sigmaclipper(MagAppU), sigmaclipper(MagAppG), sigmaclipper(MagAppR), sigmaclipper(MagAppI), sigmaclipper(MagAppZ),
+   sigmaclipper(MagAssU), sigmaclipper(MagAssG), sigmaclipper(MagAssR), sigmaclipper(MagAssI), sigmaclipper(MagAssZ),
+   sigmaclipper(AlphaFlusso), sigmaclipper(BetaFlusso), sigmaclipper(Oiii5007Flusso), sigmaclipper(Nii6584Flusso),
+   sigmaclipper(LogMassaStell), sigmaclipper(LogSFR)]
+LTot=[sigmaclipper(RedshiftTot), sigmaclipper(MagAppUTot), sigmaclipper(MagAppGTot), sigmaclipper(MagAppRTot), sigmaclipper(MagAppITot), sigmaclipper(MagAppZTot),
+      sigmaclipper(MagAssUTot), sigmaclipper(MagAssGTot), sigmaclipper(MagAssRTot), sigmaclipper(MagAssITot), sigmaclipper(MagAssZTot),
+      sigmaclipper(AlphaFlussoTot), sigmaclipper(BetaFlussoTot), sigmaclipper(Oiii5007FlussoTot), sigmaclipper(Nii6584FlussoTot),
+      sigmaclipper(LogMassaStellTot), sigmaclipper(LogSFRTot)]
+
+CM1=[sigmaclipper(sottocatalogoCM1["z"]), sigmaclipper(sottocatalogoCM1["petroMag_u"]), sigmaclipper(sottocatalogoCM1["petroMag_g"]),
+     sigmaclipper(sottocatalogoCM1["petroMag_r"]), sigmaclipper(sottocatalogoCM1["petroMag_i"]), sigmaclipper(sottocatalogoCM1["petroMag_z"]),
+     sigmaclipper(sottocatalogoCM1["absMagU"]), sigmaclipper(sottocatalogoCM1["absMagG"]), sigmaclipper(sottocatalogoCM1["absMagR"]),
+     sigmaclipper(sottocatalogoCM1["absMagI"]), sigmaclipper(sottocatalogoCM1["absMagZ"]), sigmaclipper(sottocatalogoCM1["h_alpha_flux"]),
+     sigmaclipper(sottocatalogoCM1["h_beta_flux"]), sigmaclipper(sottocatalogoCM1["oiii_5007_flux"]), sigmaclipper(sottocatalogoCM1["nii_6584_flux"]),
+     sigmaclipper(sottocatalogoCM1["lgm_tot_p50"]),sigmaclipper(sottocatalogoCM1["sfr_tot_p50"]), sigmaclipper(sottocatalogoCM1["absMagU"]-sottocatalogoCM1["absMagR"])]
+CM2=[sigmaclipper(sottocatalogoCM2["z"]), sigmaclipper(sottocatalogoCM2["petroMag_u"]), sigmaclipper(sottocatalogoCM2["petroMag_g"]),
+     sigmaclipper(sottocatalogoCM2["petroMag_r"]), sigmaclipper(sottocatalogoCM2["petroMag_i"]), sigmaclipper(sottocatalogoCM2["petroMag_z"]),
+     sigmaclipper(sottocatalogoCM2["absMagU"]), sigmaclipper(sottocatalogoCM2["absMagG"]), sigmaclipper(sottocatalogoCM2["absMagR"]),
+     sigmaclipper(sottocatalogoCM2["absMagI"]), sigmaclipper(sottocatalogoCM2["absMagZ"]), sigmaclipper(sottocatalogoCM2["h_alpha_flux"]),
+     sigmaclipper(sottocatalogoCM2["h_beta_flux"]), sigmaclipper(sottocatalogoCM2["oiii_5007_flux"]), sigmaclipper(sottocatalogoCM2["nii_6584_flux"]),
+     sigmaclipper(sottocatalogoCM2["lgm_tot_p50"]), sigmaclipper(sottocatalogoCM2["sfr_tot_p50"]), sigmaclipper(sottocatalogoCM2["absMagU"]-sottocatalogoCM2["absMagR"])]
+
+BPT1=[sigmaclipper(sottocatalogoBPT1["z"]), sigmaclipper(sottocatalogoBPT1["petroMag_u"]), sigmaclipper(sottocatalogoBPT1["petroMag_g"]),
+      sigmaclipper(sottocatalogoBPT1["petroMag_r"]), sigmaclipper(sottocatalogoBPT1["petroMag_i"]), sigmaclipper(sottocatalogoBPT1["petroMag_z"]),
+      sigmaclipper(sottocatalogoBPT1["absMagU"]), sigmaclipper(sottocatalogoBPT1["absMagG"]), sigmaclipper(sottocatalogoBPT1["absMagR"]),
+      sigmaclipper(sottocatalogoBPT1["absMagI"]), sigmaclipper(sottocatalogoBPT1["absMagZ"]), sigmaclipper(sottocatalogoBPT1["h_alpha_flux"]),
+      sigmaclipper(sottocatalogoBPT1["h_beta_flux"]), sigmaclipper(sottocatalogoBPT1["oiii_5007_flux"]), sigmaclipper(sottocatalogoBPT1["nii_6584_flux"]),
+      sigmaclipper(sottocatalogoBPT1["lgm_tot_p50"]), sigmaclipper(sottocatalogoBPT1["sfr_tot_p50"]),
+      sigmaclipper(np.log10(sottocatalogoBPT1["oiii_5007_flux"]/sottocatalogoBPT1["h_beta_flux"])),
+      sigmaclipper(np.log10(sottocatalogoBPT1["nii_6584_flux"]/sottocatalogoBPT1["h_alpha_flux"]))]
+BPT2=[sigmaclipper(sottocatalogoBPT2["z"]), sigmaclipper(sottocatalogoBPT2["petroMag_u"]), sigmaclipper(sottocatalogoBPT2["petroMag_g"]),
+      sigmaclipper(sottocatalogoBPT2["petroMag_r"]), sigmaclipper(sottocatalogoBPT2["petroMag_i"]), sigmaclipper(sottocatalogoBPT2["petroMag_z"]),
+      sigmaclipper(sottocatalogoBPT2["absMagU"]), sigmaclipper(sottocatalogoBPT2["absMagG"]), sigmaclipper(sottocatalogoBPT2["absMagR"]),
+      sigmaclipper(sottocatalogoBPT2["absMagI"]), sigmaclipper(sottocatalogoBPT2["absMagZ"]), sigmaclipper(sottocatalogoBPT2["h_alpha_flux"]),
+      sigmaclipper(sottocatalogoBPT2["h_beta_flux"]), sigmaclipper(sottocatalogoBPT2["oiii_5007_flux"]), sigmaclipper(sottocatalogoBPT2["nii_6584_flux"]),
+      sigmaclipper(sottocatalogoBPT2["lgm_tot_p50"]), sigmaclipper(sottocatalogoBPT2["sfr_tot_p50"]),
+      sigmaclipper(np.log10(sottocatalogoBPT2["oiii_5007_flux"]/sottocatalogoBPT2["h_beta_flux"])),
+      sigmaclipper(np.log10(sottocatalogoBPT2["nii_6584_flux"]/sottocatalogoBPT2["h_alpha_flux"]))]
+
+MS1=[sigmaclipper(sottocatalogoMS1["z"]), sigmaclipper(sottocatalogoMS1["petroMag_u"]), sigmaclipper(sottocatalogoMS1["petroMag_g"]),
+     sigmaclipper(sottocatalogoMS1["petroMag_r"]), sigmaclipper(sottocatalogoMS1["petroMag_i"]), sigmaclipper(sottocatalogoMS1["petroMag_z"]),
+     sigmaclipper(sottocatalogoMS1["absMagU"]), sigmaclipper(sottocatalogoMS1["absMagG"]), sigmaclipper(sottocatalogoMS1["absMagR"]),
+     sigmaclipper(sottocatalogoMS1["absMagI"]), sigmaclipper(sottocatalogoMS1["absMagZ"]), sigmaclipper(sottocatalogoMS1["h_alpha_flux"]),
+     sigmaclipper(sottocatalogoMS1["h_beta_flux"]), sigmaclipper(sottocatalogoMS1["oiii_5007_flux"]), sigmaclipper(sottocatalogoMS1["nii_6584_flux"]),
+     sigmaclipper(sottocatalogoMS1["lgm_tot_p50"]), sigmaclipper(sottocatalogoMS1["sfr_tot_p50"])]
+MS2=[sigmaclipper(sottocatalogoMS2["z"]), sigmaclipper(sottocatalogoMS2["petroMag_u"]), sigmaclipper(sottocatalogoMS2["petroMag_g"]),
+     sigmaclipper(sottocatalogoMS2["petroMag_r"]), sigmaclipper(sottocatalogoMS2["petroMag_i"]), sigmaclipper(sottocatalogoMS2["petroMag_z"]),
+     sigmaclipper(sottocatalogoMS2["absMagU"]), sigmaclipper(sottocatalogoMS2["absMagU"]), sigmaclipper(sottocatalogoMS2["absMagR"]),
+     sigmaclipper(sottocatalogoMS2["absMagI"]), sigmaclipper(sottocatalogoMS2["absMagZ"]), sigmaclipper(sottocatalogoMS2["h_alpha_flux"]),
+     sigmaclipper(sottocatalogoMS2["h_beta_flux"]), sigmaclipper(sottocatalogoMS2["oiii_5007_flux"]), sigmaclipper(sottocatalogoMS2["nii_6584_flux"]),
+     sigmaclipper(sottocatalogoMS2["lgm_tot_p50"]), sigmaclipper(sottocatalogoMS2["sfr_tot_p50"])]
+
+N=["redshift", "magnitudine apparente U", "magnitudine apparente G", "magnitudine apparente R", "magnitudine apparente I", "magnitudine apparente Z",
+   "magnitudine assoluta U", "magnitudine assoluta G", "magnitudine assoluta R", "magnitudine assoluta I", "magnitudine assoluta Z", "alpha flusso", "beta flusso",
+   "Oiii5007 flusso", "Nii5007 flusso", "logaritmo massa stellare", "logaritmo SFR", "Y variable", "X variable"]
+
+Imm_3=[dir_plots_3+"Grafico_ifr.png", dir_plots_RedMass+"Log_massa_stellare_1st_redshift_bin.png", dir_plots_RedMass+"Log_massa_stellare_2nd_redshift_bin.png",
+       dir_plots_RedMass+"Log_massa_stellare_3rd_redshift_bin.png", dir_plots_RedMagAppU+"Mag_app_U_1st_redshift_bin.png", dir_plots_RedMagAppU+"Mag_app_U_2nd_redshift_bin.png",
+       dir_plots_RedMagAppU+"Mag_app_U_3rd_redshift_bin.png", dir_plots_RedMagAssU+"Mag_ass_U_1st_redshift_bin.png", dir_plots_RedMagAssU+"Mag_ass_U_2nd_redshift_bin.png",
+       dir_plots_RedMagAssU+"Mag_ass_U_3rd_redshift_bin.png"]
+Imm_2=[dir_plots_2+"Grafico_redshift.png", dir_plots_2+"Grafico_logaritmo_massa_stellare.png", dir_plots_2+"Grafico_logaritmo_SFR.png",
+        dir_plots_2+"Grafico_magnitudini_apparenti1.png", dir_plots_2+"Grafico_magnitudini_apparenti2.png", dir_plots_2+"Grafico_magnitudini_apparenti3.png",
+        dir_plots_2+"Grafico_magnitudini_assolute1.png", dir_plots_2+"Grafico_magnitudini_assolute2.png", dir_plots_2+"Grafico_magnitudini_assolute3.png",
+        dir_plots_2+"Grafico_flussi1.png", dir_plots_2+"Grafico_flussi2.png"]
+Imm_CM=[dir_plots_subCM+"Grafico_redshift.png", dir_plots_subCM+"Grafico_logaritmo_massa_stellare.png", dir_plots_subCM+"Grafico_logaritmo_SFR.png",
+        dir_plots_subCM+"Grafico_magnitudini_apparenti1.png", dir_plots_subCM+"Grafico_magnitudini_apparenti2.png", dir_plots_subCM+"Grafico_magnitudini_apparenti3.png",
+        dir_plots_subCM+"Grafico_magnitudini_assolute1.png", dir_plots_subCM+"Grafico_magnitudini_assolute2.png", dir_plots_subCM+"Grafico_magnitudini_assolute3.png",
+        dir_plots_subCM+"Grafico_flussi1.png", dir_plots_subCM+"Grafico_flussi2.png",dir_plots_4+"Grafico_color_mass.png", dir_plots_subCM+"confronto_y_variable.png"]
+Imm_BPT=[dir_plots_subBPT+"Grafico_redshift.png", dir_plots_subBPT+"Grafico_logaritmo_massa_stellare.png", dir_plots_subBPT+"Grafico_logaritmo_SFR.png",
+        dir_plots_subBPT+"Grafico_magnitudini_apparenti1.png", dir_plots_subBPT+"Grafico_magnitudini_apparenti2.png", dir_plots_subBPT+"Grafico_magnitudini_apparenti3.png",
+        dir_plots_subBPT+"Grafico_magnitudini_assolute1.png", dir_plots_subBPT+"Grafico_magnitudini_assolute2.png", dir_plots_subBPT+"Grafico_magnitudini_assolute3.png",
+        dir_plots_subBPT+"Grafico_flussi1.png", dir_plots_subBPT+"Grafico_flussi2.png", dir_plots_4+"Grafico_bpt.png",
+        dir_plots_subBPT+"confronto_x_variable.png",dir_plots_subBPT+"confronto_y_variable.png"]
+Imm_MS=[dir_plots_subMS+"Grafico_redshift.png", dir_plots_subMS+"Grafico_logaritmo_massa_stellare.png", dir_plots_subMS+"Grafico_logaritmo_SFR.png",
+        dir_plots_subMS+"Grafico_magnitudini_apparenti1.png", dir_plots_subMS+"Grafico_magnitudini_apparenti2.png", dir_plots_subMS+"Grafico_magnitudini_apparenti3.png",
+        dir_plots_subMS+"Grafico_magnitudini_assolute1.png", dir_plots_subMS+"Grafico_magnitudini_assolute2.png", dir_plots_subMS+"Grafico_magnitudini_assolute3.png",
+        dir_plots_subMS+"Grafico_flussi1.png", dir_plots_subMS+"Grafico_flussi2.png", dir_plots_4+"Grafico_mass_sfr.png"]
+
+#creazione file risultati step 2 e 4
+print ("Creazione file di output in corso (l'operazione potrebbe richiedre del tempo)")
+print ("Riempimento file output STEP 2 in corso")
+realizzafile(dir_outputs_2,"Outupt_STEP_2", "Analisi sottocatalogo 43",
+             "\n\n\n\nAnalisi campione totale",L, LTot, Imm_2)
+print ("Riempimento file output STEP 4 (1 di 3) in corso")
+realizzafile(dir_outputs_4, "Output_STEP_4_(CM_division)", "Analisi sottocampione CM1 (early-type glaxies)",
+             "\n\n\n\nAnalisi sottcampione CM2 (late-type galaxies)", CM1, CM2, Imm_CM)
+print ("Riempimento file output STEP 4 (2 di 3) in corso")
+realizzafile(dir_outputs_4, "Output_STEP_4_(BPT_division)", "Analisi sottocampione BPT1",
+             "\n\n\n\nAnalisi sottcampione BPT2", BPT1, BPT2, Imm_BPT)
+print ("Riempimento file output STEP 4 (3 di 3) in corso")
+realizzafile(dir_outputs_4,  "Output_STEP_4_(MS_division)", "Analisi sottocampione MS1 (starforming glaxies)",
+             "\n\n\n\nAnalisi sottcampione MS2 (late-type galaxies)", MS1, MS2, Imm_MS)
+
+#creazione file risultati step 3
+print ("Riempimento file output STEP 3 in corso")
+pdf3 = FPDF()
+pdf3.add_page()
+pdf3.set_font("Arial", "B", size = 15)
+pdf3.set_text_color(255,0,0)
+pdf3.write(5,"Coefficienti di Pearson per la correlazione lineare:")
+pdf3.set_font("Arial", size = 12)
+pdf3.set_text_color(0,0,0)
+for q in range(len(lista_ifr)):
+    pdf3.write(5,"\n\nCoefficiente di Pearson per Redshift-"+labels[q]+" = %r" %(pearsonr(Redshift, lista_ifr[q])[0]))
+for r in range(len(Imm_3)):
+    if r==0:
+        pdf3.ln()
+        pdf3.image(name=Imm_3[r], x=0, w=190)
+    elif r%3==1:
+        pdf3.image(name=Imm_3[r], x=10, w=55)
+        y=pdf3.get_y()
+        x=pdf3.get_x()
+    elif r%3==2:
+        pdf3.image(name=Imm_3[r], x=x+60, y=y-80, w=55)
+    elif r%3==0:
+        pdf3.image(name=Imm_3[r], x=x+120, y=y-80, w=55)
+pdf3.output(dir_outputs_3+"Correlazioni_redshift.pdf")
+pdf3.close()
+print ("STEP 5 COMPLETATO")
+
+print ("PROGRAMMA TERMINATO")
