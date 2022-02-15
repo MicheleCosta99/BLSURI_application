@@ -7,4 +7,4 @@ The folder "LaneEmdemEq" contains a Fortran code that is able to provide the val
 
 The folder "SdssAnalysis" contains a Python code that is able to provide a statistical analysis of a sample of galaxies from the SDSS catalog and a visual representation of it.
 
-Every folder contains also the data that are needed to run the code and the instructions.
+Every folder contains also the data that are needed to run the code, the instructions to do that and a relation discussing the results.
