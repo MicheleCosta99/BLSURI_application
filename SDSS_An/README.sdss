@@ -1,0 +1,5 @@
+Instructions:
+
+To execute this program you need to compile and lauch the Python code in a directory that has the same internal structure of "SDSS_An". This means that 
+there must be the folder called "data" in the same directory. It provides a serie of results stored in different folders,  results that are discussed in the 
+pdf relation.
